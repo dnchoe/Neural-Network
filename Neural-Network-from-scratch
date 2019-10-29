@@ -1,0 +1,143 @@
+class NeuralNetwork(object):
+  def __init__(self, layer_dimensions):
+    
+    np.random.seed(1)
+    self.parameters = {}
+    self.nlayers = len(layer_dimensions)
+    
+#     print("N Layers: ", self.nlayers)
+    ## Initialize weights
+#     self.parameters['w'] = [np.random.randn(layer_dimensions[idx], val)
+#                             for idx, val in enumerate(layer_dimensions[1:])]
+    
+#     for idx, val in enumerate(layer_dimensions[1:]):
+#       self.parameters['w'][idx] /= np.sqrt(layer_dimensions[idx])
+#     ## Initialize biases
+#     self.parameters['b'] = [0 for i in layer_dimensions[1:]]
+    
+    ## Check w & b shape
+#     for layer in range(self.nlayers - 1):
+#       print("W" + str(layer) + " shape: ", self.parameters['w'][layer].shape)
+#       print("b" + str(layer) + " shape: ", self.parameters['b'][layer].shape
+    for layer in range(1, self.nlayers):
+      self.parameters["W" + str(layer)] = np.random.randn(layer_dimensions[layer],
+                                                          layer_dimensions[layer-1])/np.sqrt(layer_dimensions[layer-1])
+      self.parameters["b" + str(layer)] = np.zeros((layer_dimensions[layer], 1))
+    
+    
+  def affineForward(self, A, W, b):
+    Z = np.dot(W, A) + b
+    return Z
+  
+  def activationForward(self, A):
+    return np.maximum(0, A)
+  
+  def softMax(self, AL):
+    AL = AL - np.amax(AL, axis = 0)
+    return np.exp(AL)/np.sum(np.exp(AL), axis = 0, keepdims=True)
+  
+  def forwardPropagation(self, X):
+    cache = {}
+    cache["A0"] = X
+    
+    for layer in range(1, self.nlayers - 1):
+      W = self.parameters["W" + str(layer)]
+      b = self.parameters["b" + str(layer)]
+      A_prev = cache["A" + str(layer - 1)]
+      Z = self.affineForward(A_prev, W, b)
+#       print("affine Forw. layer ", layer, " shape: ", Z.shape)
+      A = self.activationForward(Z)
+#       print("activation Forw. layer ", layer, " shape: ", AL.shape)
+      cache["A" + str(layer)] = A
+      cache["Z" + str(layer)] = Z
+    
+    # last layer
+    Z_last = self.affineForward(cache["A" + str(self.nlayers-2)],
+                                self.parameters["W" + str(self.nlayers-1)], 
+                                self.parameters["b" + str(self.nlayers-1)])
+    
+    return Z_last, cache
+  
+  
+  
+  def costFunction(self, AL, y):
+    prob = self.softMax(AL)
+#     print(AL.shape)
+    pred = np.argmax(AL, axis = 0)
+    m = y.shape[0]
+    accuracy = np.sum(pred == y)/m
+    
+    cost = np.sum(-np.log(prob[y, range(m)]))/m
+    
+    one_hot = np.zeros((AL.shape[0], AL.shape[1]))
+    one_hot[y, range(y.shape[0])] = 1
+    dAL = prob - one_hot
+    return accuracy, cost, dAL  
+    
+  def affineBackward(self, dA_prev, cache, layer):
+    A_prev = cache["A" + str(layer-1)]
+#     print(A_prev.shape)
+    W = self.parameters["W" + str(layer)]
+    dZ = self.activationBackward(dA_prev, cache, layer)    
+    dA = np.dot(W.T, dZ)
+    dW = (1/A_prev.shape[1]) * np.dot(dZ, A_prev.T)
+    db = (1/A_prev.shape[1]) * np.sum(dZ, axis=1, keepdims=True)
+    return dA, dW, db
+  
+  def activationBackward(self, dA, cache, layer):
+    return dA * (1 * (cache["Z" + str(layer)] > 0))
+    
+  
+  def backPropagation(self, dAL, Y, cache):
+    # store dW, db
+    gradients = {}
+    m = Y.shape[0]
+    gradients["dW" + str(self.nlayers-1)] = (1/m) * np.dot(dAL, np.transpose(cache["A" + str(self.nlayers-2)]))
+    gradients["db" + str(self.nlayers-1)] = (1/m) * np.sum(dAL, axis = 1, keepdims = True)
+    dA = np.dot(self.parameters["W" + str(self.nlayers-1)].T, dAL)
+    for layer in range(self.nlayers-2, 0, -1):
+#       dA = self.activationBackward(dA, cache, layer)
+      dA, dW, db = self.affineBackward(dA, cache, layer)
+      gradients["dW" + str(layer)] = dW
+      gradients["db" + str(layer)] = db
+    
+    return gradients
+  
+  def updateParameters(self, gradients, alpha):
+    for layer in range(1, self.nlayers):
+      dW = gradients["dW" + str(layer)]
+      db = gradients["db" + str(layer)]
+#       print(dW.shape)
+#       print(self.parameters["W" + str(layer)].shape)
+      assert(dW.shape == self.parameters["W" + str(layer)].shape)
+#       assert(db.shape == self.parameters['b'][layer].shape)
+      self.parameters["W" + str(layer)] -= alpha*dW
+      self.parameters["b" + str(layer)] -= alpha*db
+      
+  def train(self, X_train, X_val, y_train, y_val, iters, alpha, batch_size):
+    import datetime
+    print("starts @ :" + datetime.datetime.now().strftime("%I:%M:%S %p"))
+    for i in range(iters):
+      indices = np.random.choice(X_train.shape[1], batch_size, replace = False)
+      X_batch = X_train[:,indices]
+      y_batch = y_train[indices]
+#       print(X_batch.shape)
+      
+      ## begin
+      AL, cache = self.forwardPropagation(X_batch)
+      accuracy, cost, dAL = self.costFunction(AL, y_batch)
+      # print(dAL.shape)
+      gradients = self.backPropagation(dAL, y_batch, cache)
+      self.updateParameters(gradients, alpha)
+      
+      if i % 100 == 0:
+        AL_val, cache = self.forwardPropagation(X_val)
+        accuracy_val, cost_val, dAL_val = self.costFunction(AL_val, y_val)
+        print("[%d / %d] Cost: %.4f, Acc: %.1f%% || Cost Val: %.4f, Acc Val: %.1f%%, Alpha: %.5f" 
+              % (i, iters, cost, 100 * accuracy, cost_val, 100 * accuracy_val, alpha))
+        print("iter" + str(i) + " @ :" + datetime.datetime.now().strftime("%I:%M:%S %p"))
+  
+  def predict(self, X_new):
+    y_new, _ = self.forwardPropagation(X_new)
+    y_pred = np.argmax(y_new, axis = 0)
+    return y_pred
